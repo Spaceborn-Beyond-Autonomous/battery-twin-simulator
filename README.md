@@ -59,8 +59,8 @@ battery-twin-simulator/
 └── README.md
 
 
-##Running for the first time
+## Running for the first time
 chmod +x run_dashboard.sh
 
-Execute Command
+## Execute Command
 ./run_dashboard.sh
