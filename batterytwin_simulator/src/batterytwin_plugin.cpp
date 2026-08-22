@@ -31,7 +31,16 @@ void BatteryTwinPlugin::Configure(const gz::sim::Entity & _entity,
   // Create Publisher for current draw
   battery_pub_ = ros_node_->create_publisher<std_msgs::msg::Float32>("/battery/current_draw", 10);
   
-  RCLCPP_INFO(ros_node_->get_logger(), "BatteryTwinPlugin Configured. Publishing current draw.");
+  // Create Subscriber for throttle commands to dynamically change current
+  throttle_sub_ = ros_node_->create_subscription<std_msgs::msg::Float32>(
+    "/drone/throttle", 10,
+    [this](const std_msgs::msg::Float32::SharedPtr msg) {
+      this->current_throttle_ = msg->data;
+    });
+
+  current_throttle_ = 0.2f; // Hover throttle (approx 10-15A)
+
+  RCLCPP_INFO(ros_node_->get_logger(), "BatteryTwinPlugin Configured. Listening to /drone/throttle");
 }
 
 void BatteryTwinPlugin::PreUpdate(const gz::sim::UpdateInfo & _info,
@@ -49,13 +58,16 @@ void BatteryTwinPlugin::PostUpdate(const gz::sim::UpdateInfo & _info,
     return;
   }
 
-  // Publish the current draw from the drone (simulated constant for now)
+  // Calculate dynamic current draw based on throttle (0.0 to 1.0)
+  // Base current of 2.0A (electronics) + up to 50.0A max motor draw
+  float dynamic_current = 2.0f + (50.0f * current_throttle_);
+
   auto msg = std_msgs::msg::Float32();
-  msg.data = 15.0f; // 15 Amps draw
+  msg.data = dynamic_current;
 
   battery_pub_->publish(msg);
 
-  // Spin the ROS node so it can handle callbacks (if we add subscribers later)
+  // Spin the ROS node so it can handle throttle callbacks
   rclcpp::spin_some(ros_node_);
 }
 

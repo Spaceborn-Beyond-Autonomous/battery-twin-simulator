@@ -1,17 +1,18 @@
 import sys
 import pathlib
-sys.path.append(str(pathlib.Path(__file__).parent.parent.parent))
+sys.path.append(str(pathlib.Path(__file__).parent.parent.parent / "batterytwin_core"))
 
 import asyncio
 import json
 import math
+import threading
 from datetime import datetime
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from batterytwin.battery_config_loader import load_battery_config
-from batterytwin.battery_model import BatteryModel
-from batterytwin.protection_model import ProtectionModel
+import rclpy
+from rclpy.node import Node
+from batterytwin_msgs.msg import BatteryTwinState
 
 app = FastAPI()
 
@@ -23,154 +24,158 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-config_path = pathlib.Path(__file__).parent.parent.parent / "config" / "batteries" / "spektrum_6s_5000mah_100c.yaml"
-config = load_battery_config(str(config_path))
-
-sim_container = {
-    "model": BatteryModel(config=config, initial_soc=1.0, initial_soh=1.0),
-    "profile": "6S",
-    "fault_injection": {
-        "over_voltage": False,
-        "over_temperature": False,
-        "over_current": False
-    }
+# Global dictionary to hold the latest telemetry from ROS 2
+latest_telemetry = {
+    "voltage": 22.2,
+    "current": 0.0,
+    "soc": 1.0,
+    "temperature": 25.0,
+    "power": 0.0,
+    "energy_remaining": 111.0,
+    "soh": 1.0,
+    "over_voltage": False,
+    "under_voltage": False,
+    "over_temperature": False,
+    "under_temperature": False,
+    "over_current": False,
+    "fault": False,
+    "healthy": True
 }
+
+class DashboardROSNode(Node):
+    def __init__(self):
+        super().__init__('dashboard_backend_node')
+        self.sub = self.create_subscription(
+            BatteryTwinState,
+            '/battery/state',
+            self.state_callback,
+            10
+        )
+        self.get_logger().info("Dashboard ROS 2 Node initialized, listening to /battery/state")
+
+    def state_callback(self, msg):
+        global latest_telemetry
+        latest_telemetry["voltage"] = getattr(msg, "voltage", 22.2)
+        latest_telemetry["current"] = getattr(msg, "current", 0.0)
+        latest_telemetry["soc"] = getattr(msg, "state_of_charge", 100.0) / 100.0
+        latest_telemetry["temperature"] = getattr(msg, "temperature", 25.0)
+        latest_telemetry["power"] = getattr(msg, "power", 0.0)
+        latest_telemetry["energy_remaining"] = (getattr(msg, "remaining_capacity", 5000.0) / 1000.0) * latest_telemetry["voltage"]
+        latest_telemetry["soh"] = getattr(msg, "state_of_health", 100.0) / 100.0
+        latest_telemetry["over_voltage"] = getattr(msg, "over_voltage", False)
+        latest_telemetry["under_voltage"] = getattr(msg, "under_voltage", False)
+        latest_telemetry["over_temperature"] = getattr(msg, "over_temperature", False)
+        latest_telemetry["under_temperature"] = getattr(msg, "under_temperature", False)
+        latest_telemetry["over_current"] = getattr(msg, "over_current", False)
+        latest_telemetry["fault"] = getattr(msg, "fault", False)
+        latest_telemetry["healthy"] = getattr(msg, "healthy", True)
+
+ros_node = None
+ros_thread = None
+
+@app.on_event("startup")
+def startup_event():
+    global ros_node, ros_thread
+    try:
+        rclpy.init(args=None)
+        ros_node = DashboardROSNode()
+        ros_thread = threading.Thread(target=rclpy.spin, args=(ros_node,), daemon=True)
+        ros_thread.start()
+        print("ROS 2 Integration Started Successfully!")
+    except Exception as e:
+        print(f"Failed to start ROS 2: {e}")
+
+@app.on_event("shutdown")
+def shutdown_event():
+    global ros_node
+    if ros_node:
+        ros_node.destroy_node()
+    if rclpy.ok():
+        rclpy.shutdown()
 
 @app.websocket("/ws/telemetry")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    print("connection open")
+    print("Dashboard Frontend Connected!")
     
     async def receive_commands():
         try:
             while True:
                 data = await websocket.receive_text()
-                command = json.loads(data)
-                action = command.get("action")
-                
-                if action == "set_profile":
-                    profile = command.get("profile")
-                    sim_container["profile"] = profile
-                    sim_container["model"] = BatteryModel(config=config, initial_soc=1.0, initial_soh=1.0)
-                    sim_container["fault_injection"] = {"over_voltage": False, "over_temperature": False, "over_current": False}
-                
-                elif action == "inject_fault":
-                    fault_type = command.get("fault")
-                    state_val = command.get("state", False)
-                    if fault_type in sim_container["fault_injection"]:
-                        sim_container["fault_injection"][fault_type] = state_val
-                        print(f"Fault injection updated: {sim_container['fault_injection']}")
+                # Here we could forward commands back to ROS 2 topics
+                pass
         except WebSocketDisconnect:
             pass
 
     async def send_telemetry():
         try:
             while True:
-                battery = sim_container["model"]
-                profile = sim_container["profile"]
-                faults = sim_container["fault_injection"]
-                
                 time_val = datetime.now().timestamp()
                 
-                # Apply simulated fault modifications
-                current_load = 80.0 if faults["over_current"] else (30.0 + 15.0 * math.sin(time_val))
+                v = latest_telemetry["voltage"]
+                c = latest_telemetry["current"]
+                soc = latest_telemetry["soc"]
+                soh = latest_telemetry["soh"]
+                power_w = latest_telemetry["power"] if latest_telemetry["power"] > 1.0 else 1.0
+                energy_wh = latest_telemetry["energy_remaining"]
                 
-                dt = 0.5
-                try:
-                    state = battery.update(
-                        current_a=current_load,
-                        dt_s=dt,
-                        temperature_c=battery.state.temperature_c
-                    )
-                except ValueError:
-                    current_load = 10.0
-                    state = battery.update(current_a=current_load, dt_s=dt)
-
-                # Force overrides if injected
-                if faults["over_voltage"]:
-                    state.voltage_v = battery.protection_model.max_voltage_v + 1.5
-                if faults["over_temperature"]:
-                    state.temperature_c = battery.protection_model.max_temperature_c + 10.0
-
-                rpm = 5000.0 + (current_load * 120.0)
-                pwm = 1100.0 + (current_load * 15.0)
-                thrust = (rpm / 1000.0) ** 2 * 0.06
-                torque = current_load * 0.025
-
-                power_w = state.power_w if state.power_w > 1.0 else 1.0
-                endurance_minutes = (state.energy_remaining_wh / power_w) * 60.0
-
-                soh_percent = state.soh * 100.0
-                effective_capacity = battery.get_effective_capacity_ah()
-                resistance_factor = battery.aging_model.get_resistance_factor()
-                efc = battery.aging_model.cycle_count
-
-                # Cell-level distribution
-                num_cells = 6 if profile == "6S" else (4 if profile == "4S" else 3)
-                avg_cell_voltage = state.voltage_v / num_cells
+                endurance_minutes = (energy_wh / power_w) * 60.0
+                
+                num_cells = 6
+                avg_cell_voltage = v / num_cells
                 cell_voltages = [
                     round(avg_cell_voltage + math.sin(time_val + i) * 0.015, 3) 
                     for i in range(num_cells)
                 ]
-
-                # Thermal model metrics
-                thermal_gen = getattr(battery.thermal_model, 'heat_generation_w', 0.0)
-                thermal_loss = getattr(battery.thermal_model, 'heat_loss_w', 0.0)
-                temp_rate = getattr(battery.thermal_model, 'temperature_rate_c_per_s', 0.0)
-                ambient_temp = getattr(battery.thermal_model, 'ambient_temperature_c', 25.0)
-
-                # Protection model evaluation using Anand's ProtectionModel logic[cite: 2]
-                prot_status = battery.protection_model.check(
-                    voltage_v=state.voltage_v,
-                    temperature_c=state.temperature_c,
-                    current_a=state.current_a
-                )
-
+                
+                rpm = 5000.0 + (c * 120.0)
+                pwm = 1100.0 + (c * 15.0)
+                thrust = (rpm / 1000.0) ** 2 * 0.06
+                torque = c * 0.025
+                
                 payload = {
-                    "active_profile": profile,
-                    "voltage": state.voltage_v,
-                    "current": state.current_a,
-                    "soc": state.soc * 100.0,
-                    "temperature": state.temperature_c,
+                    "active_profile": "6S (ROS 2 Integrated)",
+                    "voltage": v,
+                    "current": c,
+                    "soc": soc * 100.0,
+                    "temperature": latest_telemetry["temperature"],
                     "endurance_min": endurance_minutes,
-                    "energy_remaining": state.energy_remaining_wh,
+                    "energy_remaining": energy_wh,
                     "cell_voltages": cell_voltages,
                     "protection_status": {
-                        "over_voltage": prot_status.over_voltage,
-                        "under_voltage": prot_status.under_voltage,
-                        "over_temperature": prot_status.over_temperature,
-                        "under_temperature": prot_status.under_temperature,
-                        "over_current": prot_status.over_current,
-                        "fault": prot_status.fault,
-                        "healthy": prot_status.healthy
+                        "over_voltage": latest_telemetry["over_voltage"],
+                        "under_voltage": latest_telemetry["under_voltage"],
+                        "over_temperature": latest_telemetry["over_temperature"],
+                        "under_temperature": latest_telemetry["under_temperature"],
+                        "over_current": latest_telemetry["over_current"],
+                        "fault": latest_telemetry["fault"],
+                        "healthy": latest_telemetry["healthy"]
                     },
                     "thermal_metrics": {
-                        "heat_generation_w": thermal_gen,
-                        "heat_loss_w": thermal_loss,
-                        "temp_rate_c_per_s": temp_rate,
-                        "ambient_c": ambient_temp
+                        "heat_generation_w": c * 0.05,
+                        "heat_loss_w": 2.0,
+                        "temp_rate_c_per_s": 0.01,
+                        "ambient_c": 25.0
                     },
                     "degradation": {
-                        "soh": soh_percent,
-                        "effective_capacity_ah": effective_capacity,
-                        "resistance_factor": resistance_factor,
-                        "equivalent_full_cycles": efc
+                        "soh": soh * 100.0,
+                        "effective_capacity_ah": 5.0 * soh,
+                        "resistance_factor": 1.0 + (1.0 - soh),
+                        "equivalent_full_cycles": 10
                     },
                     "propulsion": {
-                        "esc_status": "ARMED" if prot_status.healthy else "FAULT",
+                        "esc_status": "ARMED" if latest_telemetry["healthy"] else "FAULT",
                         "rpm": rpm,
                         "pwm": pwm,
                         "thrust": thrust,
                         "torque": torque,
-                        "power": state.power_w
+                        "power": power_w
                     }
                 }
                 
                 await websocket.send_text(json.dumps(payload))
-                await asyncio.sleep(dt)
+                await asyncio.sleep(0.1) # 10 Hz
         except Exception as e:
             print(f"Simulation loop error: {e}")
-            import traceback
-            traceback.print_exc()
 
     await asyncio.gather(receive_commands(), send_telemetry())
