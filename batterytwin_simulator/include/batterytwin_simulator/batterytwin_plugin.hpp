@@ -37,6 +37,9 @@ private:
   // ROS 2 Node and Publisher
   rclcpp::Node::SharedPtr ros_node_;
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr battery_pub_;
+  rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr throttle_sub_;
+
+  float current_throttle_ = 0.2f;
 
   // Simulation time tracking
   std::chrono::steady_clock::duration last_update_time_{0};
