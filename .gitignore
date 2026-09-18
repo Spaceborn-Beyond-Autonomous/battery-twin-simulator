@@ -6,3 +6,6 @@ __pycache__/
 build/
 install/
 log/
+
+# Local Python environment
+.venv/
