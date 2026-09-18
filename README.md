@@ -60,7 +60,7 @@ It represents a 6S 5000 mAh LiPo battery.
 From the repository root:
 
 ```bash
-python3 batterytwin_core/tests/run_all.py
+cd batterytwin_core && python3 tests/run_all.py
 ```
 
 ## Powertrain

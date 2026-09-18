@@ -26,9 +26,9 @@ It describes a 6S 5000 mAh LiPo battery and is used by the included tests and RO
 
 ## Testing
 
-From the repository root:
+From the `batterytwin_core` directory:
 
-`python3 batterytwin_core/tests/run_all.py`
+`python3 tests/run_all.py`
 
 ## ROS 2 Integration
 
