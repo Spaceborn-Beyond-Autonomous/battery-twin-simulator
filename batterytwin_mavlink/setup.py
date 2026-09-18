@@ -16,7 +16,7 @@ setup(
     maintainer='mr_deepman',
     maintainer_email='engfelopater@github.com',
     description='TODO: Package description',
-    license='TODO: License declaration',
+    license='MIT',
     extras_require={
         'test': [
             'pytest',

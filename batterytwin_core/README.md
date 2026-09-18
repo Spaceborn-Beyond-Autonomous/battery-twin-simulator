@@ -1,66 +1,45 @@
-# Battery Twin Simulator
+# BatteryTwin Core
 
-A modular battery digital-twin simulator designed for autonomous systems, robotics, UAVs, and simulation environments.
+BatteryTwin Core is the Python-based battery simulation component of the BatteryTwin Simulator.
 
-The project provides a physics-inspired battery simulation core that models electrical, thermal, energy, aging, and protection behavior. The architecture is designed to support integration with ROS 2, Gazebo, telemetry systems, PX4/ArduPilot, and modern web dashboards.
+It provides modular models for:
 
----
+- State of charge (SoC)
+- Open-circuit voltage (OCV)
+- Internal resistance
+- Battery voltage
+- Current and power
+- Energy consumption
+- Thermal behavior
+- Battery aging
+- Protection and current limits
+- RC transient behavior
+- Battery configuration loading
 
-## Project Status
+## Configuration
 
-**Current status:** BatteryTwin Core & Real-time Web Dashboard implemented and tested.
+The example battery configuration is:
 
-### Core test status
+`config/batteries/spektrum_6s_5000mah_100c.yaml`
 
-```text
-Passed: 9
-Failed: 0
-Total : 9
+It describes a 6S 5000 mAh LiPo battery and is used by the included tests and ROS 2 integration.
 
-ALL BATTERYTWIN CORE TESTS PASSED
+## Testing
 
-battery-twin-simulator/
-│
-├── batterytwin/
-│   ├── __init__.py
-│   ├── aging_model.py
-│   ├── battery_config.py
-│   ├── battery_config_loader.py
-│   ├── battery_model.py
-│   ├── battery_state.py
-│   ├── energy_model.py
-│   ├── ocv_model.py
-│   ├── power_model.py
-│   ├── protection_model.py
-│   ├── rc_model.py
-│   ├── resistance_model.py
-│   ├── soc_model.py
-│   ├── thermal_model.py
-│   └── voltage_model.py
-│
-├── dashboard/
-│   ├── backend/
-│   │   └── main.py
-│   └── frontend/
-│       ├── src/
-│       │   └── App.tsx
-│       └── package.json
-│
-├── config/
-│   └── batteries/
-│       └── spektrum_6s_5000mah_100c.yaml
-│
-├── tests/
-│   ├── run_all.py
-│   ...
-│
-├── requirements.txt
-├── run_dashboard.sh
-└── README.md
+From the repository root:
 
+`python3 batterytwin_core/tests/run_all.py`
 
-## Running for the first time
-chmod +x run_dashboard.sh
+## ROS 2 Integration
 
-## Execute Command
-./run_dashboard.sh
+The package includes:
+
+`scripts/battery_physics_node.py`
+
+This node integrates the battery simulation with ROS 2.
+
+## License
+
+This project is released under the MIT License.
+
+See the repository-level `LICENSE.md` for the complete license text.
