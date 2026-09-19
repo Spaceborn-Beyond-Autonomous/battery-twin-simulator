@@ -5,10 +5,33 @@ set -e
 
 echo "=== BatteryTwin Simulation Suite Startup ==="
 
+# --- ADDED: ROS 2 Build & Source Step ---
+if [ -f "/opt/ros/humble/setup.bash" ]; then
+    echo "[1/5] Sourcing ROS 2 Humble & Building Workspace..."
+    source /opt/ros/humble/setup.bash
+    
+    # Build only the required packages to avoid Gazebo errors
+    colcon build --packages-select batterytwin_msgs batterytwin_core
+    
+    # Source the newly built local overlay
+    source install/setup.bash
+else
+    echo "[Warning] ROS 2 Humble not found. Skipping build step."
+fi
+
+# --- ADDED: Python Environment Fix ---
+# Force system Python (3.10) to prevent Miniconda conflicts with ROS 2
+if [ -x "/usr/bin/python3" ]; then
+    PYTHON_CMD="/usr/bin/python3"
+else
+    PYTHON_CMD="python3"
+fi
+
 # 1. Check and Install Python Requirements
 if [ -f "requirements.txt" ]; then
-    echo "[1/4] Checking Python dependencies..."
-    pip install -r requirements.txt --quiet
+    echo "[2/5] Checking Python dependencies..."
+    $PYTHON_CMD -m pip install -r requirements.txt --quiet
+    $PYTHON_CMD -m pip install "uvicorn[standard]" websockets --quiet
 else
     echo "[Warning] requirements.txt not found. Skipping automated pip install."
 fi
@@ -18,10 +41,10 @@ FRONTEND_DIR="dashboard/frontend"
 
 if [ -d "$FRONTEND_DIR" ]; then
     if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
-        echo "[2/4] Node modules missing. Installing frontend packages in $FRONTEND_DIR..."
+        echo "[3/5] Node modules missing. Installing frontend packages in $FRONTEND_DIR..."
         cd "$FRONTEND_DIR" && npm install && cd ../..
     else
-        echo "[2/4] Node modules already installed."
+        echo "[3/5] Node modules already installed."
     fi
 else
     echo "[Error] Frontend directory '$FRONTEND_DIR' not found!"
@@ -29,9 +52,9 @@ else
 fi
 
 # 3. Start the FastAPI backend from dashboard/backend in the background
-echo "[3/4] Launching FastAPI Backend..."
+echo "[4/5] Launching FastAPI Backend..."
 cd dashboard/backend
-python3 -m uvicorn main:app --reload --host 127.0.0.1 --port 8000 &
+$PYTHON_CMD -m uvicorn main:app --reload --host 127.0.0.1 --port 8000 &
 BACKEND_PID=$!
 cd ../..
 
@@ -39,7 +62,7 @@ cd ../..
 sleep 2
 
 # 4. Start the React frontend from dashboard/frontend
-echo "[4/4] Launching React Vite Frontend..."
+echo "[5/5] Launching React Vite Frontend..."
 cd "$FRONTEND_DIR" && npm run dev &
 FRONTEND_PID=$!
 cd ../..
